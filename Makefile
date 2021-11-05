@@ -1,82 +1,44 @@
-JAVAOBJS  := java.o  util.o class.o file.o memory.o native.o
-JAVAPOBJS := javap.o util.o class.o file.o
-OBJS      := java.o javap.o util.o class.o file.o memory.o native.o
-SRCS      := ${OBJS:.o=.c}
+BUILD_DIR := ./build
+SRC_DIRS := .
 
-JAVAP := javap
-JAVA  := java
+# Find all the C and C++ files we want to compile
+# Note the single quotes around the * expressions. Make will incorrectly expand these otherwise.
+# SRCS := $(shell find $(SRC_DIRS) -name '*.c')
+SRCS := class.c  file.c  memory.c  native.c  util.c
 
-CLASSES := tests/HelloWorld.class \
-           tests/Double.class \
-           tests/Echo.class \
-           tests/Int.class \
-           tests/Multi.class \
-           tests/StringTest.class \
-           tests/TableSwitch.class \
-           tests/Vector1.class \
-           tests/Vector2.class
-TESTP := ${CLASSES:.class=.p}
-TESTJ := ${CLASSES:.class=.j}
+# String substitution for every C/C++ file.
+# As an example, hello.cpp turns into ./build/hello.cpp.o
+OBJS := $(SRCS:%=$(BUILD_DIR)/%.o)
 
-LIBS = -lm
-INCS =
-CPPFLAGS = -D_POSIX_C_SOURCE=200809L
-CFLAGS = -g -O0 -std=c99 -Wall -Wextra ${INCS} ${CPPFLAGS}
-LDFLAGS = ${LIBS}
-LINT = splint
-LINTFLAGS = -nullret -predboolint
-JAVAPFLAGS = -vp
+# String substitution (suffix version without %).
+# As an example, ./build/hello.cpp.o turns into ./build/hello.cpp.d
+DEPS := $(OBJS:.o=.d)
 
-# .p and .j are dummy suffixes we use for testing
-.SUFFIXES: .p .j .java .class
+TARGET_EXEC := java
 
-# main targets
-all: ${JAVA} ${JAVAP}
+# The -MMD and -MP flags together generate Makefiles for us!
+# These files will have .d instead of .o as the output.
+CPPFLAGS := -I. -MMD -MP
 
-classes: ${CLASSES}
+LDFLAGS += -lm
 
-testp: ${TESTP}
-testj: ${TESTJ}
+# The final build step.
+$(BUILD_DIR)/java: java.c $(OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
-lint:
-	-${LINT} ${CPPFLAGS} ${LINTFLAGS} ${SRCS}
+$(BUILD_DIR)/javap: javap.c $(OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
-${JAVA}: ${JAVAOBJS}
-	${CC} -o $@ ${JAVAOBJS} ${LDFLAGS}
+# Build step for C source
+$(BUILD_DIR)/%.c.o: %.c
+	mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-${JAVAP}: ${JAVAPOBJS}
-	${CC} -o $@ ${JAVAPOBJS} ${LDFLAGS}
-
-java.o:   class.h util.h file.h memory.h native.h
-javap.o:  class.h util.h file.h
-file.o:   class.h util.h
-native.o: class.h memory.h native.h
-memory.o: class.h memory.h
-class.o:  class.h util.h
-
-.c.o:
-	${CC} ${CFLAGS} -c $<
-
-${TESTP}: javap
-${TESTJ}: java
-
-# test the disassembler (javap) on the test classes
-.class.p:
-	@echo
-	@echo "========== Disassembling $<"
-	@./${JAVAP} ${JAVAPFLAGS} $<
-
-# test the jvm (java) on the test classes
-.class.j:
-	@echo
-	@echo "========== Running $<"
-	@./${JAVA} -cp "$$(echo $< | sed 's,/[^/]*,,')" ${JAVAFLAGS} "$$(echo $< | sed 's,.*/,,; s,.class,,')"
-
-# compile the test classes
-.java.class:
-	javac $<
-
+.PHONY: clean
 clean:
-	-rm ${JAVA} ${JAVAP} ${OBJS} ${CLASSES} 2>/dev/null
+	rm -r $(BUILD_DIR)
 
-.PHONY: all clean lint testp testj ${TESTP} ${TESTJ}
+# Include the .d makefiles. The - at the front suppresses the errors of missing
+# Makefiles. Initially, all the .d files will be missing, and we don't want those
+# errors to show up.
+-include $(DEPS)
